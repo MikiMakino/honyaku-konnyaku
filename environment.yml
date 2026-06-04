@@ -4,7 +4,8 @@ channels:
 dependencies:
   - python=3.11
   - pip
-  - pyaudio
+  - portaudio
+  - python-sounddevice
   - pip:
-      - deep-translator>=1.11.4
-      - SpeechRecognition>=3.14.3
+      - argostranslate>=1.9.6
+      - vosk>=0.3.45

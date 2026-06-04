@@ -2,17 +2,26 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
+import queue
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
-
-from deep_translator import GoogleTranslator
+from typing import Any, Iterable
 
 try:
-    import speech_recognition as sr
+    import argostranslate.package as argos_package
+    import argostranslate.translate as argos_translate
 except ImportError:
-    sr = None
+    argos_package = None
+    argos_translate = None
+
+try:
+    import sounddevice as sd
+    import vosk
+except ImportError:
+    sd = None
+    vosk = None
 
 
 @dataclass
@@ -29,12 +38,13 @@ class MeetingInterpreter:
         target_lang: str,
         output_path: Path,
         display_limit: int,
+        translator: Any,
     ) -> None:
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.output_path = output_path
         self.display_limit = display_limit
-        self.translator = GoogleTranslator(source=source_lang, target=target_lang)
+        self.translator = translator
         self.history: list[SubtitleLine] = []
 
     def add_line(self, text: str) -> SubtitleLine | None:
@@ -97,12 +107,58 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         help="How many recent subtitle entries to show",
     )
     parser.add_argument(
-        "--phrase-seconds",
+        "--argos-model-file",
+        default="",
+        help="Path to local .argosmodel file to install before start",
+    )
+    parser.add_argument(
+        "--vosk-model",
+        default="",
+        help="Path to local Vosk model directory for mic mode",
+    )
+    parser.add_argument(
+        "--sample-rate",
         type=int,
-        default=7,
-        help="Phrase capture length for mic mode",
+        default=16000,
+        help="Microphone sample rate for Vosk",
     )
     return parser.parse_args(argv)
+
+
+def install_argos_model_if_requested(model_file: str) -> None:
+    if not model_file:
+        return
+    if argos_package is None:
+        raise RuntimeError("argostranslate is not installed.")
+
+    model_path = Path(model_file)
+    if not model_path.exists():
+        raise FileNotFoundError(f"Argos model not found: {model_path}")
+
+    argos_package.install_from_path(str(model_path))
+    print(f"Installed Argos model: {model_path}")
+
+
+def build_argos_translation(source_lang: str, target_lang: str) -> Any:
+    if argos_translate is None:
+        raise RuntimeError("argostranslate is not installed.")
+
+    installed_languages = argos_translate.get_installed_languages()
+    from_lang = next((lang for lang in installed_languages if lang.code == source_lang), None)
+    to_lang = next((lang for lang in installed_languages if lang.code == target_lang), None)
+
+    if from_lang is None or to_lang is None:
+        raise RuntimeError(
+            "Required Argos language model is not installed. "
+            "Install a local .argosmodel file with --argos-model-file first."
+        )
+
+    try:
+        return from_lang.get_translation(to_lang)
+    except Exception as ex:
+        raise RuntimeError(
+            f"No installed translation pair for {source_lang}->{target_lang}."
+        ) from ex
 
 
 def run_manual_mode(app: MeetingInterpreter) -> None:
@@ -123,41 +179,65 @@ def run_manual_mode(app: MeetingInterpreter) -> None:
             print(f"Translation error: {ex}")
 
 
-def run_mic_mode(app: MeetingInterpreter, phrase_seconds: int, source_lang: str) -> None:
-    if sr is None:
-        print("speech_recognition is not installed. Install requirements first.")
+def run_mic_mode(app: MeetingInterpreter, vosk_model: str, sample_rate: int) -> None:
+    if sd is None or vosk is None:
+        print("sounddevice/vosk is not installed. Install requirements first.")
+        return
+    if not vosk_model:
+        print("Mic mode requires --vosk-model path.")
         return
 
-    recognizer = sr.Recognizer()
+    model_path = Path(vosk_model)
+    if not model_path.exists():
+        print(f"Vosk model not found: {model_path}")
+        return
+
+    model = vosk.Model(str(model_path))
+    recognizer = vosk.KaldiRecognizer(model, sample_rate)
+    audio_queue: queue.Queue[bytes] = queue.Queue()
+
+    def audio_callback(indata: bytes, frames: int, time_info: dict, status: Any) -> None:
+        del frames, time_info
+        if status:
+            print(status, file=sys.stderr)
+        audio_queue.put(bytes(indata))
+
     print("Mic mode started. Press Ctrl+C to stop.")
 
-    with sr.Microphone() as source:
-        recognizer.adjust_for_ambient_noise(source, duration=1)
-        while True:
-            try:
-                audio = recognizer.listen(source, phrase_time_limit=phrase_seconds)
-                text = recognizer.recognize_google(audio, language=source_lang)
-                app.add_line(text)
-            except KeyboardInterrupt:
-                print("\nStopped by user.")
-                break
-            except sr.UnknownValueError:
-                print("Could not recognize speech.")
-            except sr.RequestError as ex:
-                print(f"Speech recognition error: {ex}")
-            except Exception as ex:
-                print(f"Unexpected error: {ex}")
+    try:
+        with sd.RawInputStream(
+            samplerate=sample_rate,
+            blocksize=8000,
+            dtype="int16",
+            channels=1,
+            callback=audio_callback,
+        ):
+            while True:
+                data = audio_queue.get()
+                if recognizer.AcceptWaveform(data):
+                    result = json.loads(recognizer.Result())
+                    text = result.get("text", "").strip()
+                    if text:
+                        app.add_line(text)
+    except KeyboardInterrupt:
+        print("\nStopped by user.")
+    except Exception as ex:
+        print(f"Mic mode error: {ex}")
 
 
 def main(argv: Iterable[str]) -> int:
     args = parse_args(argv)
     output_path = Path(args.output)
 
+    install_argos_model_if_requested(args.argos_model_file)
+    translation = build_argos_translation(args.source, args.target)
+
     app = MeetingInterpreter(
         source_lang=args.source,
         target_lang=args.target,
         output_path=output_path,
         display_limit=max(1, args.display_limit),
+        translator=translation,
     )
 
     print(
@@ -168,7 +248,7 @@ def main(argv: Iterable[str]) -> int:
     if args.mode == "manual":
         run_manual_mode(app)
     else:
-        run_mic_mode(app, args.phrase_seconds, args.source)
+        run_mic_mode(app, args.vosk_model, args.sample_rate)
 
     print(f"Saved script to: {output_path.resolve()}")
     return 0
