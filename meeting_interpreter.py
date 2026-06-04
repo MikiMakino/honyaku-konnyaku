@@ -176,7 +176,7 @@ def run_manual_mode(app: MeetingInterpreter) -> None:
         try:
             app.add_line(text)
         except Exception as ex:
-            print(f"Translation error: {ex}")
+            print(f"Error: {ex}")
 
 
 def run_mic_mode(app: MeetingInterpreter, vosk_model: str, sample_rate: int) -> None:
@@ -196,7 +196,7 @@ def run_mic_mode(app: MeetingInterpreter, vosk_model: str, sample_rate: int) -> 
     recognizer = vosk.KaldiRecognizer(model, sample_rate)
     audio_queue: queue.Queue[bytes] = queue.Queue()
 
-    def audio_callback(indata: bytes, frames: int, time_info: dict, status: Any) -> None:
+    def audio_callback(indata: bytes, frames: int, time_info: Any, status: Any) -> None:
         del frames, time_info
         if status:
             print(status, file=sys.stderr)
@@ -218,8 +218,18 @@ def run_mic_mode(app: MeetingInterpreter, vosk_model: str, sample_rate: int) -> 
                     result = json.loads(recognizer.Result())
                     text = result.get("text", "").strip()
                     if text:
-                        app.add_line(text)
+                        try:
+                            app.add_line(text)
+                        except Exception as ex:
+                            print(f"Error: {ex}")
     except KeyboardInterrupt:
+        final = json.loads(recognizer.FinalResult())
+        final_text = final.get("text", "").strip()
+        if final_text:
+            try:
+                app.add_line(final_text)
+            except Exception as ex:
+                print(f"Error: {ex}")
         print("\nStopped by user.")
     except Exception as ex:
         print(f"Mic mode error: {ex}")
@@ -228,9 +238,18 @@ def run_mic_mode(app: MeetingInterpreter, vosk_model: str, sample_rate: int) -> 
 def main(argv: Iterable[str]) -> int:
     args = parse_args(argv)
     output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    install_argos_model_if_requested(args.argos_model_file)
-    translation = build_argos_translation(args.source, args.target)
+    if args.source == args.target:
+        print("Error: --source and --target are the same. Choose different languages.")
+        return 1
+
+    try:
+        install_argos_model_if_requested(args.argos_model_file)
+        translation = build_argos_translation(args.source, args.target)
+    except Exception as ex:
+        print(f"Initialization error: {ex}")
+        return 1
 
     app = MeetingInterpreter(
         source_lang=args.source,

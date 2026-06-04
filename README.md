@@ -69,3 +69,6 @@ python meeting_interpreter.py --source ja --target en --mode mic --vosk-model mo
 - 翻訳APIやクラウド音声APIは使用しません。
 - 初回はローカルモデルの準備が必要です。
 - 認識精度はマイク環境とモデル品質に依存します。
+- `--source` と `--target` に同じ言語を指定すると、起動時にエラー終了します。
+- `--output` で指定した保存先ディレクトリが存在しない場合は自動作成されます。
+- micモードを Ctrl+C で停止したとき、最後の未確定発話も可能な限り回収して保存します。
