@@ -30,6 +30,20 @@ conda activate meeting-interpreter
 - `models/translate-ja_en.argosmodel`
 - `models/vosk-model-small-ja-0.22/`
 
+### Argosモデルを自動ダウンロードして導入 (PowerShell)
+
+ブラウザで `.argosmodel` を手動取得しなくても、公式インデックスから自動導入できます。
+
+```powershell
+python -c "import argostranslate.package as p; p.update_package_index(); pkg=next(x for x in p.get_available_packages() if x.from_code=='ja' and x.to_code=='en'); path=p.download_package(pkg); p.install_from_path(path); print('installed:', path)"
+```
+
+導入確認:
+
+```powershell
+python -c "import argostranslate.translate as t; langs=t.get_installed_languages(); print([l.code for l in langs]); fr=next(l for l in langs if l.code=='ja'); to=next(l for l in langs if l.code=='en'); tr=fr.get_translation(to); print(tr.translate('テストです'))"
+```
+
 ## Usage
 
 ### 0) 起動前の自動診断 (推奨)
