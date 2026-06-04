@@ -32,10 +32,33 @@ conda activate meeting-interpreter
 
 ## Usage
 
+### 0) 起動前の自動診断 (推奨)
+
+```bash
+python scripts/preflight_check.py --source ja --target en --vosk-model models/vosk-model-small-ja-0.22
+```
+
+`.argosmodel` ファイルの存在も同時に確認したい場合:
+
+```bash
+python scripts/preflight_check.py --source ja --target en --argos-model-file models/translate-ja_en.argosmodel --vosk-model models/vosk-model-small-ja-0.22
+```
+
+`Overall: OK` なら起動準備完了です。
+
 ### 1) 翻訳モデルをインストールしつつ起動 (初回)
 
 ```bash
 python meeting_interpreter.py --source ja --target en --mode manual --argos-model-file models/translate-ja_en.argosmodel
+```
+
+`Argos model not found` が出る場合は、指定した `.argosmodel` のパスが誤っています。
+
+- 先に配置確認: `dir .\\models`
+- 絶対パスで再実行:
+
+```bash
+python meeting_interpreter.py --source ja --target en --mode manual --argos-model-file C:\\path\\to\\translate-ja_en.argosmodel
 ```
 
 ### 2) 2回目以降の手入力モード
@@ -72,3 +95,23 @@ python meeting_interpreter.py --source ja --target en --mode mic --vosk-model mo
 - `--source` と `--target` に同じ言語を指定すると、起動時にエラー終了します。
 - `--output` で指定した保存先ディレクトリが存在しない場合は自動作成されます。
 - micモードを Ctrl+C で停止したとき、最後の未確定発話も可能な限り回収して保存します。
+
+## Troubleshooting: モデル未導入
+
+`Initialization error` でモデル未導入のメッセージが表示されたら、次の手順で解決できます。
+
+1. 対象言語ペアの `.argosmodel` を社内配布または持ち込みファイルで用意
+2. 初回のみ `--argos-model-file` を付けて実行
+3. 2回目以降は `--argos-model-file` なしで実行
+
+起動前に一括確認する場合:
+
+```bash
+python scripts/preflight_check.py --source ja --target en --argos-model-file <path-to-model.argosmodel> --vosk-model <path-to-vosk-model-dir>
+```
+
+確認コマンド:
+
+```bash
+python -c "import argostranslate.translate as t; print([l.code for l in t.get_installed_languages()])"
+```

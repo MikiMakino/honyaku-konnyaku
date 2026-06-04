@@ -133,10 +133,29 @@ def install_argos_model_if_requested(model_file: str) -> None:
 
     model_path = Path(model_file)
     if not model_path.exists():
-        raise FileNotFoundError(f"Argos model not found: {model_path}")
+        raise FileNotFoundError(
+            "Argos model not found: "
+            f"{model_path}\n"
+            "Place a .argosmodel file locally and pass the correct path with "
+            "--argos-model-file."
+        )
 
     argos_package.install_from_path(str(model_path))
     print(f"Installed Argos model: {model_path}")
+
+
+def build_model_setup_guidance(source_lang: str, target_lang: str) -> str:
+    return (
+        "Argos translation model is not installed for "
+        f"{source_lang}->{target_lang}.\n"
+        "How to fix:\n"
+        "1) Download or copy a local .argosmodel file for that language pair.\n"
+        "2) Install on first run:\n"
+        "   python meeting_interpreter.py "
+        f"--source {source_lang} --target {target_lang} --mode manual "
+        "--argos-model-file <path-to-model.argosmodel>\n"
+        "3) After install, run without --argos-model-file."
+    )
 
 
 def build_argos_translation(source_lang: str, target_lang: str) -> Any:
@@ -144,20 +163,23 @@ def build_argos_translation(source_lang: str, target_lang: str) -> Any:
         raise RuntimeError("argostranslate is not installed.")
 
     installed_languages = argos_translate.get_installed_languages()
+    installed_codes = sorted({lang.code for lang in installed_languages})
     from_lang = next((lang for lang in installed_languages if lang.code == source_lang), None)
     to_lang = next((lang for lang in installed_languages if lang.code == target_lang), None)
 
     if from_lang is None or to_lang is None:
         raise RuntimeError(
-            "Required Argos language model is not installed. "
-            "Install a local .argosmodel file with --argos-model-file first."
+            build_model_setup_guidance(source_lang, target_lang)
+            + "\n"
+            + "Installed language codes: "
+            + (", ".join(installed_codes) if installed_codes else "none")
         )
 
     try:
         return from_lang.get_translation(to_lang)
     except Exception as ex:
         raise RuntimeError(
-            f"No installed translation pair for {source_lang}->{target_lang}."
+            build_model_setup_guidance(source_lang, target_lang)
         ) from ex
 
 
