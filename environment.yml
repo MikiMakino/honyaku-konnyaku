@@ -1,0 +1,10 @@
+name: meeting-interpreter
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pyaudio
+  - pip:
+      - deep-translator>=1.11.4
+      - SpeechRecognition>=3.14.3
