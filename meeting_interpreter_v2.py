@@ -20,8 +20,8 @@ from transformers import MarianMTModel, MarianTokenizer
 
 # Supported language pairs and their Helsinki OPUS-MT model names
 _TRANSLATION_MODELS: dict[tuple[str, str], str] = {
-    ("ja", "en"): "Helsinki-NLP/opus-mt-tc-big-ja-en",
-    ("en", "ja"): "Helsinki-NLP/opus-mt-tc-big-en-ja",
+    ("ja", "en"): "Helsinki-NLP/opus-mt-ja-en",
+    ("en", "ja"): "Helsinki-NLP/opus-mt-en-jap",
 }
 
 
