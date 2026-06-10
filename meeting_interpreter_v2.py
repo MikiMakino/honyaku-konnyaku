@@ -81,25 +81,41 @@ class MeetingInterpreter:
         print("\nAll models loaded. Ready.\n")
 
     def process_audio(self, audio: np.ndarray, sample_rate: int = 16000) -> None:
+        timestamp = dt.datetime.now().strftime("%H:%M:%S")
+
         segments, info = self.whisper.transcribe(
             audio,
             beam_size=5,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 300},
         )
-        text = " ".join(seg.text.strip() for seg in segments).strip()
+
+        # Print each segment as Whisper decodes it
+        parts: list[str] = []
+        for seg in segments:
+            part = seg.text.strip()
+            if part:
+                parts.append(part)
+                print(f"\r[{timestamp}] ORG: {' '.join(parts)}", end="", flush=True)
+
+        text = " ".join(parts).strip()
         if not text:
             return
 
+        print()  # End the ORG line
+
         detected = info.language
-        # If detected language is not ja/en, fall back to en
         src = detected if detected in ("ja", "en") else "en"
         tgt = "ja" if src == "en" else "en"
 
+        # Show placeholder while translating, then overwrite with result
+        print(f"[{timestamp}] TRN: ...", end="", flush=True)
         translated = self.translation.translate(text, src, tgt)
+        print(f"\r[{timestamp}] TRN: {translated}")
+        print("-" * 72)
 
         line = SubtitleLine(
-            timestamp=dt.datetime.now().strftime("%H:%M:%S"),
+            timestamp=timestamp,
             direction=f"{src}→{tgt}",
             original=text,
             translated=translated,
@@ -107,7 +123,6 @@ class MeetingInterpreter:
         with self._lock:
             self.history.append(line)
             self._save(line)
-            self._render()
 
     def _save(self, line: SubtitleLine) -> None:
         with self.output_path.open("a", encoding="utf-8") as f:
@@ -130,7 +145,7 @@ def run_mic_mode(
     app: MeetingInterpreter,
     sample_rate: int = 16000,
     silence_threshold: float = 0.02,
-    silence_seconds: float = 1.2,
+    silence_seconds: float = 0.6,
     max_seconds: float = 30.0,
 ) -> None:
     audio_queue: queue.Queue[np.ndarray] = queue.Queue()
