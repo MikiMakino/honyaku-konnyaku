@@ -20,8 +20,8 @@ from transformers import MarianMTModel, MarianTokenizer
 
 # Supported language pairs and their Helsinki OPUS-MT model names
 _TRANSLATION_MODELS: dict[tuple[str, str], str] = {
-    ("ja", "en"): "Helsinki-NLP/opus-mt-ja-en",
-    ("en", "ja"): "Helsinki-NLP/opus-mt-en-jap",
+    ("ja", "en"): "Helsinki-NLP/opus-mt-tc-big-ja-en",
+    ("en", "ja"): "Helsinki-NLP/opus-mt-tc-big-en-ja",
 }
 
 
@@ -59,6 +59,18 @@ class TranslationEngine:
         outputs = model.generate(**inputs)
         return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
+    def gloss(self, text: str, src: str, tgt: str) -> str:
+        """Translate word by word and join with ' / ' (en→ja only)."""
+        import re
+        words = re.findall(r"[A-Za-z']+|[0-9]+(?:\.[0-9]+)?|[^\w\s]", text)
+        glosses = []
+        for word in words:
+            if re.match(r"[A-Za-z]", word):
+                glosses.append(self.translate(word, src, tgt))
+            else:
+                glosses.append(word)
+        return " / ".join(glosses)
+
 
 class MeetingInterpreter:
     def __init__(
@@ -66,9 +78,11 @@ class MeetingInterpreter:
         output_path: Path,
         whisper_model_size: str = "small",
         display_limit: int = 8,
+        gloss_mode: bool = False,
     ) -> None:
         self.output_path = output_path
         self.display_limit = display_limit
+        self.gloss_mode = gloss_mode
         self.history: list[SubtitleLine] = []
         self._lock = threading.Lock()
 
@@ -85,10 +99,13 @@ class MeetingInterpreter:
 
         segments, info = self.whisper.transcribe(
             audio,
-            beam_size=5,
+            beam_size=1,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 300},
         )
+
+        # Show indicator immediately so the user knows processing has started
+        print(f"[{timestamp}] ORG: 🎤 ...", end="", flush=True)
 
         # Print each segment as Whisper decodes it
         parts: list[str] = []
@@ -110,7 +127,10 @@ class MeetingInterpreter:
 
         # Show placeholder while translating, then overwrite with result
         print(f"[{timestamp}] TRN: ...", end="", flush=True)
-        translated = self.translation.translate(text, src, tgt)
+        if self.gloss_mode and src == "en" and tgt == "ja":
+            translated = self.translation.gloss(text, src, tgt)
+        else:
+            translated = self.translation.translate(text, src, tgt)
         print(f"\r[{timestamp}] TRN: {translated}")
         print("-" * 72)
 
@@ -289,6 +309,11 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
         default=0.02,
         help="Energy threshold for silence detection (default: 0.02)",
     )
+    parser.add_argument(
+        "--gloss",
+        action="store_true",
+        help="Word-by-word gloss mode for en→ja (show word meanings in original order)",
+    )
     return parser.parse_args(argv)
 
 
@@ -299,6 +324,7 @@ def main(argv: Iterable[str]) -> int:
         output_path=Path(args.output),
         whisper_model_size=args.whisper_model,
         display_limit=args.display_limit,
+        gloss_mode=args.gloss,
     )
 
     if args.mode == "mic":
