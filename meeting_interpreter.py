@@ -10,10 +10,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 try:
-    import argostranslate.package as argos_package
     import argostranslate.translate as argos_translate
 except ImportError:
-    argos_package = None
     argos_translate = None
 
 try:
@@ -128,7 +126,9 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
 def install_argos_model_if_requested(model_file: str) -> None:
     if not model_file:
         return
-    if argos_package is None:
+    try:
+        import argostranslate.package as argos_package
+    except ImportError:
         raise RuntimeError("argostranslate is not installed.")
 
     model_path = Path(model_file)
